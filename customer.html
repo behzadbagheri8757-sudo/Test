@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>مشتری — حبوبات و خشکبار باقری</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body data-page="customer">
+<header>
+  <h1>حبوبات و خشکبار باقری</h1>
+  <p>دفتر حساب — فروش، مشتریان، انبار، تامین‌کننده‌ها</p>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<button class="fab" id="fab" style="display:none;">+</button>
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+<div id="printArea"></div>
+
+<script src="./js/models.js"></script>
+<script src="./js/ui.js"></script>
+<script src="./js/db.js"></script>
+<script src="./js/calc.js"></script>
+<script src="./js/stock.js"></script>
+<script src="./js/payments.js"></script>
+<script src="./js/backup.js"></script>
+<script src="./js/nav.js"></script>
+<script src="./js/app.js"></script>
+<script>
+/* Phase 3 — customer dossier page. Uses customerTotals / customerProfit only. */
+
+let currentCustomerId = null;
+
+function render(){ drawCustomerPage(); }
+function openCustomerDetail(cid){
+  if(cid && cid === currentCustomerId){ drawCustomerPage(); return; }
+  location.href = './customer.html?id=' + encodeURIComponent(cid);
+}
+
+function invoicePayStatus(inv){
+  const paid = (inv.cashPaid||0) + (inv.cardPaid||0) + (inv.transferPaid||0) + (inv.checkPaid||0);
+  const total = inv.total||0;
+  if(total <= 0) return { label: '—', cls: '' };
+  if(paid <= 0) return { label: 'پرداخت‌نشده', cls: 'accent-rust' };
+  if(paid + 0.5 >= total) return { label: 'تسویه روی فاکتور', cls: 'accent-olive' };
+  return { label: 'پرداخت جزئی', cls: 'accent-amber' };
+}
+
+function drawCustomerPage(){
+  const main = document.getElementById('main');
+  if(!main) return;
+  const id = currentCustomerId || getQueryParam('id');
+  currentCustomerId = id;
+
+  if(!id){
+    main.innerHTML = `<div class="empty">شناسه مشتری مشخص نشده است.</div>
+      <div class="btn-row"><a class="btn secondary" href="./customers.html">بازگشت به لیست مشتریان</a></div>`;
+    return;
+  }
+  const c = data.customers.find(x => x.id === id);
+  if(!c){
+    main.innerHTML = `<div class="empty">مشتری با این شناسه پیدا نشد.</div>
+      <div class="btn-row"><a class="btn secondary" href="./customers.html">بازگشت به لیست مشتریان</a></div>`;
+    return;
+  }
+
+  const t = customerTotals(c.id);
+  const profit = customerProfit(c.id);
+  const word = balanceStatusWord(t.balance);
+  const color = t.balance > 0 ? 'accent-rust' : (t.balance < 0 ? 'accent-olive' : 'accent-olive');
+  const balanceLine = t.balance === 0 ? word : (word + ': ' + toman(Math.abs(t.balance)) + ' ت');
+
+  const invs = customerInvoices(c.id).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'') || String(b.number).localeCompare(String(a.number)));
+  const pays = customerPayments(c.id).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const chks = customerChecks(c.id).slice().sort((a,b)=> (b.dueDate||'').localeCompare(a.dueDate||''));
+  const visits = (c.visits||[]).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.time||'').localeCompare(a.time||''));
+
+  const invRows = invs.length ? invs.map(inv => {
+    const st = invoicePayStatus(inv);
+    return `<a class="ledger-row" href="./invoice.html?id=${encodeURIComponent(inv.id)}" style="text-decoration:none;color:inherit;">
+      <span class="name">#${esc(String(inv.number||''))}<span class="sub">${faDate(inv.date)} — <span class="${st.cls}">${st.label}</span></span></span>
+      <span class="filler"></span>
+      <span class="amount">${toman(inv.total)} ت</span>
+    </a>`;
+  }).join('') : '<div class="empty" style="padding:12px 0;">فاکتوری ثبت نشده</div>';
+
+  const payRows = pays.length ? pays.map(p => {
+    const method = paymentMethodLabel(p.method);
+    return `<div class="ledger-row">
+      <span class="name">${esc(method)}${p.note?`<span class="sub">${esc(p.note)}</span>`:''}<span class="sub">${faDate(p.date)}</span></span>
+      <span class="filler"></span>
+      <span class="amount">${toman(p.amount)} ت</span>
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:12px 0;">پرداختی ثبت نشده</div>';
+
+  const chkRows = chks.length ? chks.map(ch => {
+    const st = ch.status === 'cleared' ? 'پاس‌شده' : 'در جریان';
+    const stCls = ch.status === 'cleared' ? 'accent-olive' : 'accent-amber';
+    return `<div class="ledger-row">
+      <span class="name">${esc(ch.checkNumber||'چک')}<span class="sub">سررسید: ${faDate(ch.dueDate)} — <span class="${stCls}">${st}</span></span></span>
+      <span class="filler"></span>
+      <span class="amount">${toman(ch.amount)} ت</span>
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:12px 0;">چکی ثبت نشده</div>';
+
+  const visitRows = visits.length ? visits.slice(0, 30).map(v => {
+    const ordered = v.ordered || v.result === (typeof VISIT_RESULTS!=='undefined' && VISIT_RESULTS[0]);
+    const scoreBit = (typeof v.score === 'number') ? (' — امتیاز: ' + v.score + ' از ۱۰۰') : '';
+    const noteBit = v.note ? `<span class="sub">${esc(v.note)}</span>` : '';
+    return `<div class="ledger-row" style="cursor:default;">
+      <span class="name">${esc(v.result||'ویزیت')}
+        <span class="sub">${faDate(v.date)}${v.time?' — '+esc(v.time):''}${scoreBit}</span>
+        ${noteBit}
+      </span>
+      <span class="filler"></span>
+      <span class="amount ${ordered?'accent-olive':''}">${ordered?'سفارش':'ویزیت'}</span>
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:12px 0;">ویزیتی ثبت نشده</div>';
+
+  main.innerHTML = `
+    <div class="btn-row" style="margin-bottom:10px;">
+      <a class="btn secondary small" href="./customers.html">← مشتریان</a>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;">
+      <div style="font-size:1.15rem;font-weight:800;color:var(--olive-dark);margin-bottom:8px;">${esc(c.name)}</div>
+      <div style="font-size:.88rem;line-height:1.85;color:var(--ink);">
+        ${c.ownerName ? '<div>صاحب: '+esc(c.ownerName)+'</div>' : ''}
+        ${c.phone ? '<div>تلفن: '+esc(c.phone)+'</div>' : ''}
+        ${c.region ? '<div>منطقه: '+esc(c.region)+'</div>' : ''}
+        ${c.route ? '<div>مسیر: '+esc(c.route)+'</div>' : ''}
+        ${c.address ? '<div>آدرس: '+esc(c.address)+'</div>' : ''}
+        ${c.note ? '<div>یادداشت: '+esc(c.note)+'</div>' : ''}
+      </div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px dotted var(--line);">
+        <div class="label">مانده حساب</div>
+        <div class="value ${color}" style="font-size:1.25rem;">${balanceLine}</div>
+      </div>
+    </div>
+
+    <div class="cards" style="margin-bottom:14px;">
+      <div class="card"><div class="label">مجموع خرید (فاکتورها)</div><div class="value">${toman(t.invTotal)} ت</div></div>
+      <div class="card"><div class="label">مجموع پرداخت‌ها</div><div class="value">${toman(t.payTotal)} ت</div></div>
+      <div class="card"><div class="label">جمع چک‌ها</div><div class="value">${toman(t.checkTotal)} ت</div></div>
+      <div class="card"><div class="label">مانده اولیه</div><div class="value">${toman(t.openingBalance)} ت</div></div>
+      <div class="card"><div class="label">تعداد فاکتور</div><div class="value">${invs.length}</div></div>
+      <div class="card"><div class="label">سود مشتری</div><div class="value accent-amber">${toman(profit)} ت</div></div>
+    </div>
+
+    <h3 class="sub-title">عملیات سریع</h3>
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button type="button" class="btn small" id="act-invoice">ثبت فاکتور</button>
+      <button type="button" class="btn small secondary" id="act-pay">ثبت پرداخت</button>
+      <button type="button" class="btn small secondary" id="act-visit">ثبت ویزیت</button>
+      <button type="button" class="btn small secondary" id="act-check">ثبت چک</button>
+      <button type="button" class="btn small secondary" id="act-edit">ویرایش مشتری</button>
+    </div>
+
+    <h3 class="sub-title">فاکتورها (${invs.length})</h3>
+    ${invRows}
+
+    <h3 class="sub-title">پرداخت‌ها (${pays.length})</h3>
+    ${payRows}
+
+    <h3 class="sub-title">چک‌ها (${chks.length})</h3>
+    ${chkRows}
+
+    <h3 class="sub-title">ویزیت‌ها و ارزیابی‌ها (${visits.length})</h3>
+    <div class="btn-row" style="margin-bottom:8px;">
+      <button type="button" class="btn small" id="act-visit-section">ثبت ویزیت برای این مشتری</button>
+      <a class="btn small secondary" href="./visits.html">همه ویزیت‌ها</a>
+    </div>
+    ${visitRows}
+  `;
+
+  document.getElementById('act-invoice').onclick = () => openAddInvoice(c.id);
+  document.getElementById('act-pay').onclick = () => openAddTransaction(c.id);
+  document.getElementById('act-visit').onclick = () => openAddVisit(c.id);
+  const visitSecBtn = document.getElementById('act-visit-section');
+  if(visitSecBtn) visitSecBtn.onclick = () => openAddVisit(c.id);
+  document.getElementById('act-check').onclick = () => openAddCheck(c.id);
+  document.getElementById('act-edit').onclick = () => openAddCustomer(c.id);
+}
+
+bootPage('customers', function(){
+  currentCustomerId = getQueryParam('id');
+  drawCustomerPage();
+});
+</script>
+</body>
+</html>
