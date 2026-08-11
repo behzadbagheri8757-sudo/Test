@@ -117,9 +117,8 @@ header p{
   line-height:1.4;
 }
 
-/* ===================== NAV ===================== */
-nav#nav,
-nav{
+/* ===================== NAV (top bar only — never match .bottom-nav) ===================== */
+nav#nav{
   display:flex;
   overflow-x:auto;
   gap:6px;
@@ -133,9 +132,9 @@ nav{
   box-shadow:var(--shadow-xs);
   scrollbar-width:none;
 }
-nav::-webkit-scrollbar{display:none;}
-nav button,
-nav a.nav-link{
+nav#nav::-webkit-scrollbar{display:none;}
+nav#nav button,
+nav#nav a.nav-link{
   flex:0 0 auto;
   min-width:auto;
   min-height:34px;
@@ -155,14 +154,14 @@ nav a.nav-link{
   justify-content:center;
   transition:background .12s,color .12s;
 }
-nav button.active,
-nav a.nav-link.active{
+nav#nav button.active,
+nav#nav a.nav-link.active{
   color:#fff;
   background:var(--color-primary);
   border-color:var(--color-primary);
 }
-nav a.nav-link:active,
-nav button:active{opacity:.85;}
+nav#nav a.nav-link:active,
+nav#nav button:active{opacity:.85;}
 
 /* ===================== MAIN ===================== */
 main{
@@ -865,17 +864,27 @@ body.page-dashboard #nav{
 
 /* ===================== BOTTOM NAVIGATION ===================== */
 .bottom-nav{
-  position:fixed;
-  left:0; right:0; bottom:0;
+  position:fixed !important;
+  top:auto !important;          /* reset any leftover top from generic rules */
+  left:0;
+  right:0;
+  bottom:0;
+  height:auto;
+  max-height:none;
+  width:100%;
   z-index:40;
   display:flex;
   align-items:stretch;
   justify-content:space-around;
+  overflow:visible;
   background:var(--color-surface);
+  border:none;
   border-top:1px solid var(--color-border);
+  border-bottom:none;
   box-shadow:0 -4px 20px rgba(11,31,58,.06);
   padding:6px 4px calc(6px + var(--safe-bottom));
   min-height:calc(56px + var(--safe-bottom));
+  -webkit-overflow-scrolling:auto;
 }
 .bottom-nav-item{
   flex:1 1 0;
