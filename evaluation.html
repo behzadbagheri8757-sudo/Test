@@ -198,6 +198,9 @@ function drawEvaluation(){
     try{
       if(formState.mode==='visit'){
         const shop=await addProspectVisit(formState.shopId,{answers:formState.answers,tags:formState.tags});
+        if(typeof queueProspectTargetMilestoneMessage==='function'){
+          queueProspectTargetMilestoneMessage(prospectState.dailyTarget);
+        }
         showToast('ویزیت ثبت شد');
         location.href='./prospect.html?id='+encodeURIComponent(shop.id);
       } else {
@@ -208,6 +211,9 @@ function drawEvaluation(){
           answers:formState.answers,
           tags:formState.tags,
         });
+        if(typeof queueProspectTargetMilestoneMessage==='function'){
+          queueProspectTargetMilestoneMessage(prospectState.dailyTarget);
+        }
         showToast('مغازه ثبت شد');
         location.href='./prospect.html?id='+encodeURIComponent(shop.id);
       }
