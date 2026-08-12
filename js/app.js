@@ -382,7 +382,7 @@ function getPageDirUrl(){
   }
 }
 
-/** Absolute URL for a project-relative asset (./assets/...) */
+/** Absolute URL for a project-relative asset */
 function resolvedAssetUrl(relPath){
   const rel = String(relPath || '').replace(/^\.\//, '');
   try{ return new URL(rel, getPageDirUrl()).href; }
@@ -401,13 +401,40 @@ function exportLogoSrc(){
 }
 
 /**
- * Wait until an <img> is fully decoded (naturalWidth>0) or fails/timeout.
- * Never hangs forever. Returns {ok, reason, naturalWidth, currentSrc}.
+ * Fetch logo once and convert to data: URL so Print/html2canvas never depend on
+ * a live network path at capture time (fixes broken-image in real CRM print/export).
+ * Cached for the page session.
  */
+let __logoDataUrlCache = Object.create(null);
+async function logoToDataUrl(kind){
+  const abs = kind === 'export' ? exportLogoSrc() : appLogoSrc();
+  if(__logoDataUrlCache[abs]) return __logoDataUrlCache[abs];
+  try{
+    const res = await fetch(abs, {cache:'force-cache'});
+    if(!res.ok) throw new Error('HTTP '+res.status+' for '+abs);
+    const blob = await res.blob();
+    if(!blob || !blob.size) throw new Error('empty blob for '+abs);
+    const dataUrl = await new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = ()=> resolve(fr.result);
+      fr.onerror = ()=> reject(fr.error || new Error('FileReader failed'));
+      fr.readAsDataURL(blob);
+    });
+    if(typeof dataUrl !== 'string' || dataUrl.indexOf('data:image') !== 0){
+      throw new Error('not an image data URL');
+    }
+    __logoDataUrlCache[abs] = dataUrl;
+    return dataUrl;
+  }catch(e){
+    console.error('logoToDataUrl failed', abs, e);
+    return null;
+  }
+}
+
 function waitForImg(img, timeoutMs){
   return new Promise(resolve=>{
     if(!img){ resolve({ok:true, reason:'no-img', naturalWidth:0, currentSrc:''}); return; }
-    const ms = timeoutMs || 5000;
+    const ms = timeoutMs || 8000;
     let settled = false;
     const finish = (ok, reason)=>{
       if(settled) return;
@@ -425,10 +452,11 @@ function waitForImg(img, timeoutMs){
       else finish(false, 'already-broken');
       return;
     }
-    const onLoad = ()=>{ if(img.naturalWidth > 0) finish(true, 'load'); else finish(false, 'load-zero'); };
-    const onErr = ()=> finish(false, 'error');
-    img.addEventListener('load', onLoad, {once:true});
-    img.addEventListener('error', onErr, {once:true});
+    img.addEventListener('load', ()=>{
+      if(img.naturalWidth > 0) finish(true, 'load');
+      else finish(false, 'load-zero');
+    }, {once:true});
+    img.addEventListener('error', ()=> finish(false, 'error'), {once:true});
     setTimeout(()=>{
       if(img.complete && img.naturalWidth > 0) finish(true, 'timeout-ok');
       else finish(false, 'timeout');
@@ -436,20 +464,26 @@ function waitForImg(img, timeoutMs){
   });
 }
 
-/** Force absolute src on all images under root, then wait for every image */
-async function prepareImgsForOutput(root, timeoutMs){
+/** Set every .inv-logo img (and all imgs) to embedded data URL, then wait for decode */
+async function prepareInvoiceImgs(root, kind, timeoutMs){
   if(!root) return [];
+  const dataUrl = await logoToDataUrl(kind || 'print');
   const imgs = Array.from(root.querySelectorAll('img'));
   imgs.forEach(img=>{
-    const raw = img.getAttribute('src') || '';
-    if(!raw) return;
-    if(!/^(https?:|data:|blob:)/i.test(raw)){
-      img.src = resolvedAssetUrl(raw);
+    if(dataUrl){
+      img.removeAttribute('crossorigin');
+      img.src = dataUrl;
+    }else{
+      // last resort: absolute path
+      const raw = img.getAttribute('src') || '';
+      if(raw && !/^(https?:|data:|blob:)/i.test(raw)){
+        img.src = resolvedAssetUrl(raw);
+      }
     }
   });
   const results = [];
   for(const img of imgs){
-    results.push(await waitForImg(img, timeoutMs || 5000));
+    results.push(await waitForImg(img, timeoutMs || 8000));
   }
   return results;
 }
@@ -461,16 +495,16 @@ async function printInvoice(invId){
   const area = document.getElementById('printArea');
   if(!area){ if(typeof showToast==='function') showToast('ناحیه چاپ در صفحه موجود نیست'); return; }
   area.innerHTML = invoiceDocHtml(inv, cust, true);
-  const results = await prepareImgsForOutput(area, 6000);
+  const results = await prepareInvoiceImgs(area, 'print', 8000);
   const failed = results.filter(r=>!r.ok);
   if(failed.length){
-    console.warn('print logo/img load failed', failed);
-    if(typeof showToast==='function') showToast('لوگو بارگذاری کامل نشد — چاپ ادامه می‌یابد');
+    console.warn('print logo load failed', failed);
+    if(typeof showToast==='function') showToast('لوگو بارگذاری نشد — مسیر assets را بررسی کنید');
   }
-  requestAnimationFrame(()=>{
-    try{ window.print(); }
-    catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); }
-  });
+  // one extra frame after decode so layout/print engine sees the bitmap
+  await new Promise(r=> requestAnimationFrame(()=> requestAnimationFrame(r)));
+  try{ window.print(); }
+  catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); }
 }
 
 function statementDocHtml(c, forPrint){
@@ -531,11 +565,10 @@ async function printCustomerStatement(cid){
   const area = document.getElementById('printArea');
   if(!area) return;
   area.innerHTML = statementDocHtml(c, true);
-  await prepareImgsForOutput(area, 6000);
-  requestAnimationFrame(()=>{
-    try{ window.print(); }
-    catch(e){ console.error(e); }
-  });
+  await prepareInvoiceImgs(area, 'print', 8000);
+  await new Promise(r=> requestAnimationFrame(()=> requestAnimationFrame(r)));
+  try{ window.print(); }
+  catch(e){ console.error(e); }
 }
 
 async function exportInvoiceImage(invId){
@@ -552,19 +585,21 @@ async function exportInvoiceImage(invId){
   holder.style.background='#fff';
   holder.innerHTML = invoiceDocHtml(inv, cust, false);
   document.body.appendChild(holder);
-  // force export PNG logo + wait until decoded
-  const holderLogoImg = holder.querySelector('.inv-logo img');
-  if(holderLogoImg){
-    holderLogoImg.src = exportLogoSrc();
+  const results = await prepareInvoiceImgs(holder, 'export', 10000);
+  const failed = results.filter(r=>!r.ok);
+  if(failed.length){
+    console.warn('export logo load failed', failed);
   }
-  const results = await prepareImgsForOutput(holder, 8000);
-  const logoOk = results.length === 0 || results.every(r=>r.ok);
-  if(!logoOk){
-    console.warn('export logo load failed', results);
-    // still try; may export without logo
-  }
+  // ensure decode before capture
+  await new Promise(r=> requestAnimationFrame(()=> requestAnimationFrame(r)));
   try{
-    const canvas = await html2canvas(holder, {scale:2, backgroundColor:'#ffffff', useCORS:true, allowTaint:true});
+    const canvas = await html2canvas(holder, {
+      scale:2,
+      backgroundColor:'#ffffff',
+      useCORS:true,
+      allowTaint:true,
+      imageTimeout:10000
+    });
     canvas.toBlob(async (blob)=>{
       await downloadFile(`فاکتور-${inv.number||''}.png`, blob, 'image/png');
       showToast('تصویر فاکتور آماده شد — می‌تونی از واتساپ بفرستی');
