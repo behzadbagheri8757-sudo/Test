@@ -42,10 +42,10 @@ let invFilter = 'all'; // all | paid | debt
 let invSort = 'newest'; // newest | oldest | amountDesc | amountAsc
 
 function invoicePaidAmount(inv){
-  return (inv.cashPaid||0) + (inv.cardPaid||0) + (inv.transferPaid||0) + (inv.checkPaid||0);
+  return typeof invoiceEffectivePaid === 'function' ? invoiceEffectivePaid(inv) : invoiceOnRecordPaid(inv);
 }
 function invoiceRemain(inv){
-  return (inv.total||0) - invoicePaidAmount(inv);
+  return typeof invoiceEffectiveRemain === 'function' ? invoiceEffectiveRemain(inv) : Math.max(0, (inv.total||0) - invoicePaidAmount(inv));
 }
 function invoicePayStatus(inv){
   const paid = invoicePaidAmount(inv);

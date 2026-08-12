@@ -128,7 +128,7 @@ function renderReportsBodyOnly(){
   // invoice payment status (period)
   let paidCount = 0, openCount = 0;
   invsPeriod.forEach(inv=>{
-    const paid = (inv.cashPaid||0)+(inv.cardPaid||0)+(inv.transferPaid||0)+(inv.checkPaid||0);
+    const paid = typeof invoiceEffectivePaid === 'function' ? invoiceEffectivePaid(inv) : ((inv.cashPaid||0)+(inv.cardPaid||0)+(inv.transferPaid||0)+(inv.checkPaid||0));
     const remain = (inv.total||0) - paid;
     if(remain <= 0.5) paidCount++; else openCount++;
   });

@@ -46,7 +46,7 @@ function openCustomerDetail(cid){
 }
 
 function invoicePayStatus(inv){
-  const paid = (inv.cashPaid||0) + (inv.cardPaid||0) + (inv.transferPaid||0) + (inv.checkPaid||0);
+  const paid = typeof invoiceEffectivePaid === 'function' ? invoiceEffectivePaid(inv) : ((inv.cashPaid||0)+(inv.cardPaid||0)+(inv.transferPaid||0)+(inv.checkPaid||0));
   const total = inv.total||0;
   if(total <= 0) return { label: '—', cls: '' };
   if(paid <= 0) return { label: 'پرداخت‌نشده', cls: 'accent-rust' };
