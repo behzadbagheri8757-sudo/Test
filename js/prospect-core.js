@@ -135,6 +135,95 @@ async function registerProspectVisitForTarget(){
   await prospectDbPut('meta', {key:'dailyTarget', value:dt});
 }
 
+/* ---- UI-only random milestone messages (no DB / no target logic change) ---- */
+const PROSPECT_TARGET_MILESTONE_MSGS = {
+  '50': [
+    'نصف راه رو اومدی؛ عالی بود 👏',
+    '۵۰٪ تارگت زده شد؛ همین‌طور ادامه بده',
+    'نیمه راه پشت سر گذاشته شد؛ قوی باش'
+  ],
+  '80': [
+    '۸۰٪ تموم شد؛ فقط یک قدم تا قهرمانی',
+    'تقریباً رسیدی؛ عالی پیش می‌ری 🔥',
+    '۸۰٪ تارگت؛ تمرکز روی خط پایان'
+  ],
+  '100': [
+    'تارگت امروز کامل شد؛ آفرین 🎉',
+    '۱۰۰٪ زدی؛ روزت عالی بود',
+    'تارگت پر شد؛ کارت درسته 💪'
+  ]
+};
+
+function _prospectTargetMsgStoreKey(dateStr){
+  return 'baqeri_pt_msg_' + (dateStr || (typeof prospectTodayStr==='function' ? prospectTodayStr() : ''));
+}
+
+function _getShownProspectTargetMilestones(dateStr){
+  try{
+    return JSON.parse(sessionStorage.getItem(_prospectTargetMsgStoreKey(dateStr)) || '{}') || {};
+  }catch(e){
+    return {};
+  }
+}
+
+function _markProspectTargetMilestoneShown(dateStr, key){
+  const o = _getShownProspectTargetMilestones(dateStr);
+  o[String(key)] = true;
+  // prevent lower milestones from showing later in the same day
+  if(key === '100'){ o['50']=true; o['80']=true; }
+  if(key === '80'){ o['50']=true; }
+  try{
+    sessionStorage.setItem(_prospectTargetMsgStoreKey(dateStr), JSON.stringify(o));
+  }catch(e){}
+}
+
+function _pickProspectTargetMilestoneMsg(key){
+  const list = PROSPECT_TARGET_MILESTONE_MSGS[String(key)] || [];
+  if(!list.length) return '';
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/**
+ * READ-ONLY vs target logic: uses current count/target only.
+ * Does not write ProspectScoutDB / dailyTarget.
+ * Queues a single toast (via sessionStorage) so navigation does not lose the message.
+ */
+function queueProspectTargetMilestoneMessage(dt){
+  if(!dt || !(Number(dt.target) > 0)) return;
+  const target = Number(dt.target) || 0;
+  const count = Number(dt.count) || 0;
+  const pct = (count / target) * 100;
+  let key = null;
+  if(pct >= 100) key = '100';
+  else if(pct >= 80) key = '80';
+  else if(pct >= 50) key = '50';
+  else return;
+
+  const dateStr = dt.date || (typeof prospectTodayStr==='function' ? prospectTodayStr() : '');
+  const shown = _getShownProspectTargetMilestones(dateStr);
+  if(shown[key]) return;
+
+  _markProspectTargetMilestoneShown(dateStr, key);
+  const msg = _pickProspectTargetMilestoneMsg(key);
+  if(!msg) return;
+  try{
+    sessionStorage.setItem('baqeri_prospect_pending_toast', msg);
+  }catch(e){}
+  // If still on same page, show immediately as well
+  if(typeof showToast === 'function'){
+    try{ showToast(msg); }catch(e){}
+  }
+}
+
+function flushProspectPendingToast(){
+  try{
+    const msg = sessionStorage.getItem('baqeri_prospect_pending_toast');
+    if(!msg) return;
+    sessionStorage.removeItem('baqeri_prospect_pending_toast');
+    if(typeof showToast === 'function') showToast(msg);
+  }catch(e){}
+}
+
 /**
  * Convert prospect shop → CRM customer (baqeri data.customers).
  * Does NOT copy evaluation visits into customer.visits.
@@ -212,6 +301,7 @@ async function bootProspectPage(activeNavId, afterLoad){
     if(typeof ensureAppBackButton==='function') ensureAppBackButton(activeNavId);
     await loadProspectData();
     if(typeof afterLoad==='function') await afterLoad();
+    if(typeof flushProspectPendingToast==='function') flushProspectPendingToast();
   }catch(e){
     console.error('bootProspectPage failed', e);
     if(typeof showToast==='function') showToast('خطا در بارگذاری ارزیابی مغازه‌ها');
