@@ -820,11 +820,104 @@ body[data-page="dashboard"] #nav{
 }
 .debt-row a{text-decoration:none;color:inherit;}
 
+/* ===================== INVOICE PRINT DOCUMENT ===================== */
+/* روی صفحه مخفی است؛ فقط هنگام print یا export (کپی DOM) دیده می‌شود */
+#printArea{ display:none; }
+
+.inv-doc{
+  font-family: Vazirmatn, Tahoma, sans-serif;
+  color:#0b1f3a;
+  direction:rtl;
+  text-align:right;
+  background:#fff;
+  padding:12px 14px;
+  box-sizing:border-box;
+}
+.inv-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border-bottom:2px solid #0b1f3a;
+  padding-bottom:10px;
+  margin-bottom:12px;
+}
+.inv-logo{ flex:0 0 auto; }
+.inv-logo img{
+  display:block;
+  max-height:64px;
+  max-width:140px;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+}
+.inv-brand{ flex:1 1 auto; text-align:center; }
+.inv-brand-name{ font-weight:800; font-size:1.05rem; }
+.inv-doc-title{ font-weight:600; font-size:.95rem; margin-top:2px; }
+.inv-meta{ flex:0 0 auto; font-size:.82rem; line-height:1.6; }
+.inv-customer{
+  font-size:.88rem;
+  line-height:1.7;
+  margin-bottom:12px;
+}
+.inv-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:.82rem;
+  margin-bottom:12px;
+}
+.inv-table th,.inv-table td{
+  border:1px solid #c5d0dc;
+  padding:6px 8px;
+  text-align:center;
+}
+.inv-table th{ background:#eef3f8; font-weight:700; }
+.inv-totals{
+  width:100%;
+  border-collapse:collapse;
+  font-size:.88rem;
+  margin-top:4px;
+}
+.inv-totals td{
+  padding:5px 8px;
+  border-bottom:1px solid #e2e8f0;
+}
+.inv-totals td:last-child{ text-align:left; font-variant-numeric:tabular-nums; }
+.inv-totals .inv-final td{ font-weight:800; border-bottom:2px solid #0b1f3a; }
+.inv-signatures{
+  display:flex;
+  justify-content:space-between;
+  gap:24px;
+  margin-top:28px;
+  font-size:.85rem;
+}
+.inv-signatures > div{ flex:1; text-align:center; }
+.inv-sig-line{
+  margin-top:36px;
+  border-bottom:1px solid #0b1f3a;
+  height:0;
+}
+
 /* ===================== PRINT ===================== */
+/* فقط سند داخل #printArea چاپ شود — نه کل صفحه CRM */
 @media print{
-  .overlay,.sheet,header,nav,.fab,.toast{display:none !important;}
-  main{padding:0;max-width:none;}
-  body{background:#fff;}
+  body *{ visibility:hidden !important; }
+  #printArea, #printArea *{ visibility:visible !important; }
+  #printArea{
+    display:block !important;
+    position:absolute;
+    left:0;
+    top:0;
+    width:100%;
+    margin:0;
+    padding:8px;
+    background:#fff !important;
+  }
+  .overlay,.sheet,header,nav,.fab,.toast,.bottom-nav,button.app-back,main{
+    display:none !important;
+  }
+  body{ background:#fff !important; }
+  .inv-logo img{ max-height:72px; max-width:160px; }
 }
 
 /* ===================== RESPONSIVE ===================== */
