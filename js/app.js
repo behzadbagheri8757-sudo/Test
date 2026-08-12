@@ -321,7 +321,7 @@ function invoiceDocHtml(inv, cust, forPrint){
   return `
     <div class="inv-doc ${forPrint?'':'screen-preview'}">
       <div class="inv-head">
-        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو"></div>
+        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو" width="140" height="77"></div>
         <div class="inv-brand">
           <div class="inv-brand-name">حبوبات و خشکبار باقری</div>
           <div class="inv-doc-title">فاکتور فروش</div>
@@ -382,14 +382,13 @@ function getPageDirUrl(){
   }
 }
 
-/** Absolute URL for a project-relative asset */
+/** Absolute URL for a project-relative asset.
+ * Uses document.baseURI (browser-native base-URL resolution) instead of manually
+ * rebuilding origin+pathname — avoids edge cases with file:// URLs, GitHub Pages
+ * sub-paths, and trailing-slash handling that a hand-rolled resolver can get wrong. */
 function resolvedAssetUrl(relPath){
-  const rel = String(relPath || '').replace(/^\.\//, '');
-  try{ return new URL(rel, getPageDirUrl()).href; }
-  catch(e){
-    try{ return new URL(relPath, document.baseURI || window.location.href).href; }
-    catch(e2){ return relPath; }
-  }
+  try{ return new URL(relPath, document.baseURI || window.location.href).href; }
+  catch(e){ return relPath; }
 }
 function appLogoSrc(){
   const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './assets/logo-export.png';
@@ -531,7 +530,7 @@ function statementDocHtml(c, forPrint){
   return `
     <div class="inv-doc ${forPrint?'':'screen-preview'}">
       <div class="inv-head">
-        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو"></div>
+        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو" width="140" height="77"></div>
         <div class="inv-brand">
           <div class="inv-brand-name">حبوبات و خشکبار باقری</div>
           <div class="inv-doc-title">صورتحساب مشتری</div>
