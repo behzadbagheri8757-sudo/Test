@@ -821,8 +821,23 @@ body[data-page="dashboard"] #nav{
 .debt-row a{text-decoration:none;color:inherit;}
 
 /* ===================== INVOICE PRINT DOCUMENT ===================== */
-/* روی صفحه مخفی است؛ فقط هنگام print یا export (کپی DOM) دیده می‌شود */
-#printArea{ display:none; }
+/* روی صفحه دیده نمی‌شود، اما display:none نیست — عمداً.
+   اگر این ناحیه display:none باشد و فقط داخل @media print به block تبدیل شود،
+   کروم هرگز یک paint واقعی از <img> داخلش انجام نداده، و در لحظه‌ی چاپ
+   به‌جای تصویر یک آیکون broken-image (علامت سؤال) رسم می‌کند — حتی اگر
+   تصویر کاملاً load/decode شده باشد. به همین دلیل به‌جای display:none از
+   position:fixed + خارج از صفحه استفاده می‌شود: عنصر همیشه در درخت
+   layout/paint واقعی مرورگر هست (مثل holder مربوط به Export)، فقط دیده نمی‌شود. */
+#printArea{
+  position:fixed;
+  left:-99999px;
+  top:0;
+  width:0;
+  height:0;
+  overflow:hidden;
+  margin:0;
+  padding:0;
+}
 
 .inv-doc{
   font-family: Vazirmatn, Tahoma, sans-serif;
@@ -909,6 +924,8 @@ body[data-page="dashboard"] #nav{
     left:0;
     top:0;
     width:100%;
+    height:auto;
+    overflow:visible;
     margin:0;
     padding:8px;
     background:#fff !important;
