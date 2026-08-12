@@ -390,16 +390,18 @@ a.ledger-row:active{
   display:flex;
   align-items:flex-end;
   justify-content:center;
-  z-index:30;
+  /* Must be above .bottom-nav (z-index:40) so sheet actions are tappable */
+  z-index:60;
 }
 .sheet{
   background:var(--color-surface);
   width:100%;
   max-width:720px;
-  max-height:92vh;
+  max-height:90vh;
   overflow-y:auto;
   border-radius:var(--radius-lg) var(--radius-lg) 0 0;
-  padding:18px 16px calc(18px + var(--safe-bottom));
+  /* Extra bottom padding so primary actions (ثبت) are not flush / covered */
+  padding:18px 16px calc(28px + var(--safe-bottom));
   border-top:none;
   -webkit-overflow-scrolling:touch;
   box-shadow:0 -10px 40px rgba(11,31,58,.15);
@@ -494,7 +496,7 @@ a.ledger-row:active{
   opacity:0;
   pointer-events:none;
   transition:opacity .2s, transform .2s;
-  z-index:50;
+  z-index:70;
   white-space:nowrap;
   max-width:90vw;
   overflow:hidden;
