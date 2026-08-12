@@ -402,15 +402,24 @@ function exportLogoSrc(){
 /**
  * Fetch logo once and convert to data: URL so Print/html2canvas never depend on
  * a live network path at capture time (fixes broken-image in real CRM print/export).
- * Cached for the page session.
+ * Cached in-memory for the page session.
+ *
+ * cache:'reload' (not 'force-cache') is deliberate: 'force-cache' tells the browser
+ * to reuse ANY cached response for this URL — including an old 404 cached from
+ * before assets/logo-export.png existed on the deployed site — without ever
+ * checking the network again. That reproduces exactly the symptom reported:
+ * the file loads fine when opened directly (a normal navigation, which does
+ * revalidate), but fetch() inside the app kept serving the stale cached failure.
+ * 'reload' always goes to the network for this fetch and refreshes the cache
+ * with the current, correct response.
  */
 let __logoDataUrlCache = Object.create(null);
 async function logoToDataUrl(kind){
   const abs = kind === 'export' ? exportLogoSrc() : appLogoSrc();
   if(__logoDataUrlCache[abs]) return __logoDataUrlCache[abs];
   try{
-    const res = await fetch(abs, {cache:'force-cache'});
-    if(!res.ok) throw new Error('HTTP '+res.status+' for '+abs);
+    const res = await fetch(abs, {cache:'reload'});
+    if(!res.ok) throw new Error('HTTP '+res.status+' '+res.statusText+' for '+abs);
     const blob = await res.blob();
     if(!blob || !blob.size) throw new Error('empty blob for '+abs);
     const dataUrl = await new Promise((resolve, reject)=>{
