@@ -9,7 +9,7 @@
    ======================================================================= */
 
 // Logo assets (external files — not inlined; load only when print/export needs them)
-const APP_LOGO_DATA_URI = './assets/logo.svg';
+const APP_LOGO_DATA_URI = './assets/logo-export.png';
 const EXPORT_LOGO_DATA_URI = './assets/logo-export.png';
 
 const DB_NAME = 'baqeriDB';

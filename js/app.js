@@ -365,47 +365,112 @@ function invoiceDocHtml(inv, cust, forPrint){
   `;
 }
 
-/** Resolve logo/asset path to absolute URL so print & off-screen export always load local assets */
+/** Directory URL of the current HTML page (handles GitHub Pages project paths) */
+function getPageDirUrl(){
+  try{
+    const u = new URL(window.location.href);
+    let path = u.pathname || '/';
+    const last = path.split('/').pop() || '';
+    if(/\.[a-zA-Z0-9]+$/.test(last)){
+      path = path.substring(0, path.lastIndexOf('/') + 1);
+    }else if(!path.endsWith('/')){
+      path = path + '/';
+    }
+    return u.origin + path;
+  }catch(e){
+    return (document.baseURI || window.location.href || '').replace(/[^/]+$/, '') || './';
+  }
+}
+
+/** Absolute URL for a project-relative asset (./assets/...) */
 function resolvedAssetUrl(relPath){
-  try{ return new URL(relPath, window.location.href).href; }
-  catch(e){ return relPath; }
+  const rel = String(relPath || '').replace(/^\.\//, '');
+  try{ return new URL(rel, getPageDirUrl()).href; }
+  catch(e){
+    try{ return new URL(relPath, document.baseURI || window.location.href).href; }
+    catch(e2){ return relPath; }
+  }
 }
 function appLogoSrc(){
-  const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './assets/logo.svg';
+  const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './assets/logo-export.png';
   return resolvedAssetUrl(p);
 }
 function exportLogoSrc(){
   const p = (typeof EXPORT_LOGO_DATA_URI !== 'undefined' && EXPORT_LOGO_DATA_URI) ? EXPORT_LOGO_DATA_URI : './assets/logo-export.png';
   return resolvedAssetUrl(p);
 }
+
+/**
+ * Wait until an <img> is fully decoded (naturalWidth>0) or fails/timeout.
+ * Never hangs forever. Returns {ok, reason, naturalWidth, currentSrc}.
+ */
 function waitForImg(img, timeoutMs){
   return new Promise(resolve=>{
-    if(!img){ resolve(); return; }
-    if(img.complete && img.naturalWidth > 0){ resolve(); return; }
-    let done = false;
-    const finish = ()=>{ if(done) return; done = true; resolve(); };
-    img.onload = finish;
-    img.onerror = finish;
-    setTimeout(finish, timeoutMs || 2000);
+    if(!img){ resolve({ok:true, reason:'no-img', naturalWidth:0, currentSrc:''}); return; }
+    const ms = timeoutMs || 5000;
+    let settled = false;
+    const finish = (ok, reason)=>{
+      if(settled) return;
+      settled = true;
+      resolve({
+        ok: !!ok,
+        reason: reason || '',
+        naturalWidth: img.naturalWidth || 0,
+        naturalHeight: img.naturalHeight || 0,
+        currentSrc: img.currentSrc || img.src || ''
+      });
+    };
+    if(img.complete){
+      if(img.naturalWidth > 0) finish(true, 'already-complete');
+      else finish(false, 'already-broken');
+      return;
+    }
+    const onLoad = ()=>{ if(img.naturalWidth > 0) finish(true, 'load'); else finish(false, 'load-zero'); };
+    const onErr = ()=> finish(false, 'error');
+    img.addEventListener('load', onLoad, {once:true});
+    img.addEventListener('error', onErr, {once:true});
+    setTimeout(()=>{
+      if(img.complete && img.naturalWidth > 0) finish(true, 'timeout-ok');
+      else finish(false, 'timeout');
+    }, ms);
   });
 }
 
-function printInvoice(invId){
+/** Force absolute src on all images under root, then wait for every image */
+async function prepareImgsForOutput(root, timeoutMs){
+  if(!root) return [];
+  const imgs = Array.from(root.querySelectorAll('img'));
+  imgs.forEach(img=>{
+    const raw = img.getAttribute('src') || '';
+    if(!raw) return;
+    if(!/^(https?:|data:|blob:)/i.test(raw)){
+      img.src = resolvedAssetUrl(raw);
+    }
+  });
+  const results = [];
+  for(const img of imgs){
+    results.push(await waitForImg(img, timeoutMs || 5000));
+  }
+  return results;
+}
+
+async function printInvoice(invId){
   const inv = data.invoices.find(x=>x.id===invId);
   if(!inv){ if(typeof showToast==='function') showToast('فاکتور برای چاپ پیدا نشد'); return; }
   const cust = data.customers.find(x=>x.id===inv.customerId);
   const area = document.getElementById('printArea');
   if(!area){ if(typeof showToast==='function') showToast('ناحیه چاپ در صفحه موجود نیست'); return; }
   area.innerHTML = invoiceDocHtml(inv, cust, true);
-  const logoImg = area.querySelector('.inv-logo img');
-  // صبر کوتاه برای load لوگو، سپس print همان printArea (نه کل UI به‌تنهایی)
-  const doPrint = ()=>{
-    requestAnimationFrame(()=>{
-      try{ window.print(); }
-      catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); }
-    });
-  };
-  waitForImg(logoImg, 1500).then(doPrint);
+  const results = await prepareImgsForOutput(area, 6000);
+  const failed = results.filter(r=>!r.ok);
+  if(failed.length){
+    console.warn('print logo/img load failed', failed);
+    if(typeof showToast==='function') showToast('لوگو بارگذاری کامل نشد — چاپ ادامه می‌یابد');
+  }
+  requestAnimationFrame(()=>{
+    try{ window.print(); }
+    catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); }
+  });
 }
 
 function statementDocHtml(c, forPrint){
@@ -460,20 +525,17 @@ function statementDocHtml(c, forPrint){
   `;
 }
 
-function printCustomerStatement(cid){
+async function printCustomerStatement(cid){
   const c = data.customers.find(x=>x.id===cid);
   if(!c) return;
   const area = document.getElementById('printArea');
   if(!area) return;
   area.innerHTML = statementDocHtml(c, true);
-  const logoImg = area.querySelector('.inv-logo img');
-  const doPrint = ()=>{
-    requestAnimationFrame(()=>{
-      try{ window.print(); }
-      catch(e){ console.error(e); }
-    });
-  };
-  waitForImg(logoImg, 1500).then(doPrint);
+  await prepareImgsForOutput(area, 6000);
+  requestAnimationFrame(()=>{
+    try{ window.print(); }
+    catch(e){ console.error(e); }
+  });
 }
 
 async function exportInvoiceImage(invId){
@@ -490,10 +552,16 @@ async function exportInvoiceImage(invId){
   holder.style.background='#fff';
   holder.innerHTML = invoiceDocHtml(inv, cust, false);
   document.body.appendChild(holder);
+  // force export PNG logo + wait until decoded
   const holderLogoImg = holder.querySelector('.inv-logo img');
   if(holderLogoImg){
     holderLogoImg.src = exportLogoSrc();
-    await waitForImg(holderLogoImg, 2500);
+  }
+  const results = await prepareImgsForOutput(holder, 8000);
+  const logoOk = results.length === 0 || results.every(r=>r.ok);
+  if(!logoOk){
+    console.warn('export logo load failed', results);
+    // still try; may export without logo
   }
   try{
     const canvas = await html2canvas(holder, {scale:2, backgroundColor:'#ffffff', useCORS:true, allowTaint:true});
