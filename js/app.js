@@ -321,7 +321,7 @@ function invoiceDocHtml(inv, cust, forPrint){
   return `
     <div class="inv-doc ${forPrint?'':'screen-preview'}">
       <div class="inv-head">
-        <div class="inv-logo"><img src="${APP_LOGO_DATA_URI}" alt="لوگو"></div>
+        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو"></div>
         <div class="inv-brand">
           <div class="inv-brand-name">حبوبات و خشکبار باقری</div>
           <div class="inv-doc-title">فاکتور فروش</div>
@@ -365,6 +365,31 @@ function invoiceDocHtml(inv, cust, forPrint){
   `;
 }
 
+/** Resolve logo/asset path to absolute URL so print & off-screen export always load local assets */
+function resolvedAssetUrl(relPath){
+  try{ return new URL(relPath, window.location.href).href; }
+  catch(e){ return relPath; }
+}
+function appLogoSrc(){
+  const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './assets/logo.svg';
+  return resolvedAssetUrl(p);
+}
+function exportLogoSrc(){
+  const p = (typeof EXPORT_LOGO_DATA_URI !== 'undefined' && EXPORT_LOGO_DATA_URI) ? EXPORT_LOGO_DATA_URI : './assets/logo-export.png';
+  return resolvedAssetUrl(p);
+}
+function waitForImg(img, timeoutMs){
+  return new Promise(resolve=>{
+    if(!img){ resolve(); return; }
+    if(img.complete && img.naturalWidth > 0){ resolve(); return; }
+    let done = false;
+    const finish = ()=>{ if(done) return; done = true; resolve(); };
+    img.onload = finish;
+    img.onerror = finish;
+    setTimeout(finish, timeoutMs || 2000);
+  });
+}
+
 function printInvoice(invId){
   const inv = data.invoices.find(x=>x.id===invId);
   if(!inv){ if(typeof showToast==='function') showToast('فاکتور برای چاپ پیدا نشد'); return; }
@@ -372,8 +397,15 @@ function printInvoice(invId){
   const area = document.getElementById('printArea');
   if(!area){ if(typeof showToast==='function') showToast('ناحیه چاپ در صفحه موجود نیست'); return; }
   area.innerHTML = invoiceDocHtml(inv, cust, true);
-  // delay one frame so DOM/print CSS apply (helps Safari/iOS)
-  requestAnimationFrame(()=>{ try{ window.print(); }catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); } });
+  const logoImg = area.querySelector('.inv-logo img');
+  // صبر کوتاه برای load لوگو، سپس print همان printArea (نه کل UI به‌تنهایی)
+  const doPrint = ()=>{
+    requestAnimationFrame(()=>{
+      try{ window.print(); }
+      catch(e){ console.error(e); if(typeof showToast==='function') showToast('چاپ در این مرورگر پشتیبانی نشد'); }
+    });
+  };
+  waitForImg(logoImg, 1500).then(doPrint);
 }
 
 function statementDocHtml(c, forPrint){
@@ -400,7 +432,7 @@ function statementDocHtml(c, forPrint){
   return `
     <div class="inv-doc ${forPrint?'':'screen-preview'}">
       <div class="inv-head">
-        <div class="inv-logo"><img src="${APP_LOGO_DATA_URI}" alt="لوگو"></div>
+        <div class="inv-logo"><img src="${appLogoSrc()}" alt="لوگو"></div>
         <div class="inv-brand">
           <div class="inv-brand-name">حبوبات و خشکبار باقری</div>
           <div class="inv-doc-title">صورتحساب مشتری</div>
@@ -431,8 +463,17 @@ function statementDocHtml(c, forPrint){
 function printCustomerStatement(cid){
   const c = data.customers.find(x=>x.id===cid);
   if(!c) return;
-  document.getElementById('printArea').innerHTML = statementDocHtml(c, true);
-  window.print();
+  const area = document.getElementById('printArea');
+  if(!area) return;
+  area.innerHTML = statementDocHtml(c, true);
+  const logoImg = area.querySelector('.inv-logo img');
+  const doPrint = ()=>{
+    requestAnimationFrame(()=>{
+      try{ window.print(); }
+      catch(e){ console.error(e); }
+    });
+  };
+  waitForImg(logoImg, 1500).then(doPrint);
 }
 
 async function exportInvoiceImage(invId){
@@ -446,15 +487,16 @@ async function exportInvoiceImage(invId){
   const holder = document.createElement('div');
   holder.style.position='fixed'; holder.style.left='-9999px'; holder.style.top='0';
   holder.style.width='420px';
+  holder.style.background='#fff';
   holder.innerHTML = invoiceDocHtml(inv, cust, false);
   document.body.appendChild(holder);
   const holderLogoImg = holder.querySelector('.inv-logo img');
   if(holderLogoImg){
-    holderLogoImg.src = EXPORT_LOGO_DATA_URI;
-    await new Promise(res=>{ if(holderLogoImg.complete) res(); else holderLogoImg.onload = res; });
+    holderLogoImg.src = exportLogoSrc();
+    await waitForImg(holderLogoImg, 2500);
   }
   try{
-    const canvas = await html2canvas(holder, {scale:2, backgroundColor:'#ffffff'});
+    const canvas = await html2canvas(holder, {scale:2, backgroundColor:'#ffffff', useCORS:true, allowTaint:true});
     canvas.toBlob(async (blob)=>{
       await downloadFile(`فاکتور-${inv.number||''}.png`, blob, 'image/png');
       showToast('تصویر فاکتور آماده شد — می‌تونی از واتساپ بفرستی');
