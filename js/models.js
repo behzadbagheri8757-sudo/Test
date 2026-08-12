@@ -43,6 +43,11 @@ let custFilter = 'all';
 let custSortByDebt = false;
 
 function emptyData(){
+  // suppliers[].payments: legacy {date, amount} or extended
+  //   {id, date, amount, method:'cash'|'check', note?,
+  //    // when method==='check':
+  //    faceAmount, checkNumber?, bank?, issueDate?, dueDate?, status:'pending'|'cleared'|'bounced'}
+  // Customer receivable checks remain only in top-level data.checks (unchanged).
   return { products: [], customers: [], invoices: [], payments: [], checks: [], suppliers: [], invoiceSeq: 1000, schemaVersion: CURRENT_SCHEMA_VERSION };
 }
 

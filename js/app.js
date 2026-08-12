@@ -1487,9 +1487,27 @@ function openSupplierDetail(sid){
       <div class="ledger-row"><span class="name">${faDate(p.date)} ${p.desc?`<span class="sub">${esc(p.desc)}</span>`:''}${linesLabel?`<span class="sub">${linesLabel}</span>`:''}${returnedAmount>0?`<span class="sub">برگشت‌شده: ${toman(returnedAmount)} ت${p.productId?` (${returnedQty} از ${p.qty})`:''}</span>`:''}</span><span class="filler"></span><span class="amount">${toman(p.amount)} ت${remainingAmount>0?`<br><button class="btn secondary small" data-return-purchase="${p.id}">برگشت</button>`:''}</span></div>
     `;}).join('')}
     <h2 class="section-title">پرداختی‌ها</h2>
-    ${payments.length===0?`<div class="empty">پرداختی ثبت نشده</div>`:payments.map(p=>`
-      <div class="ledger-row"><span class="name">${faDate(p.date)}</span><span class="filler"></span><span class="amount">${toman(p.amount)} ت</span></div>
-    `).join('')}
+    ${payments.length===0?`<div class="empty">پرداختی ثبت نشده</div>`:payments.map((p,pidx)=>{
+      const isCheck = p.method==='check';
+      const face = isCheck ? (typeof p.faceAmount==='number' ? p.faceAmount : p.amount) : p.amount;
+      const st = isCheck ? (p.status||'pending') : '';
+      const stLabel = st==='cleared'?'پرداخت‌شده':(st==='bounced'?'برگشتی':'در جریان');
+      const stBadge = st==='cleared'?'cleared':(st==='bounced'?'pending':'pending');
+      const nameBits = isCheck
+        ? `چک${p.checkNumber?` #${esc(p.checkNumber)}`:''}${p.bank?` — ${esc(p.bank)}`:''}${p.dueDate?` <span class="sub">سررسید ${faDate(p.dueDate)}</span>`:''}${p.note?` <span class="sub">(${esc(p.note)})</span>`:''}`
+        : `${faDate(p.date)}${p.note?` <span class="sub">(${esc(p.note)})</span>`:''}`;
+      return `<div class="ledger-row">
+        <span class="name">${isCheck?faDate(p.issueDate||p.date)+' — ':''}${nameBits}</span>
+        <span class="filler"></span>
+        <span class="amount">${toman(isCheck?face:p.amount)} ت${isCheck?` <span class="badge ${stBadge}">${stLabel}</span>`:''}
+          ${isCheck?`<br>
+            <button class="btn secondary small" data-sup-check-status="${pidx}">وضعیت</button>
+            <button class="btn secondary small" data-sup-check-edit="${pidx}">ویرایش</button>
+            <button class="btn danger small" data-sup-pay-del="${pidx}">حذف</button>
+          `:`<br><button class="btn danger small" data-sup-pay-del="${pidx}">حذف</button>`}
+        </span>
+      </div>`;
+    }).join('')}
   `);
   document.getElementById('add-purchase').addEventListener('click', ()=>{
     let multiItems = [];
@@ -1605,19 +1623,137 @@ function openSupplierDetail(sid){
   document.getElementById('add-suppay').addEventListener('click', ()=>{
     openSheet(`
       <h3>پرداخت به ${esc(s.name)}</h3>
-      <div class="field"><label>تاریخ</label><input id="f-date" type="date" value="${todayISO()}"></div>
+      <div class="field">
+        <label>روش پرداخت</label>
+        <select id="f-method">
+          <option value="cash">نقد / کارت / انتقال</option>
+          <option value="check">چک</option>
+        </select>
+      </div>
       <div class="field"><label>مبلغ (تومان)</label><input id="f-amount" type="text" inputmode="decimal"></div>
+      <div class="field"><label>تاریخ پرداخت / صدور</label><input id="f-date" type="date" value="${todayISO()}"></div>
+      <div id="check-fields" style="display:none;">
+        <div class="field"><label>تاریخ سررسید</label><input id="f-due" type="date" value="${todayISO()}"></div>
+        <div class="field"><label>شماره چک</label><input id="f-check-num"></div>
+        <div class="field"><label>بانک</label><input id="f-bank"></div>
+      </div>
+      <div class="field"><label>توضیح (اختیاری)</label><input id="f-note"></div>
       <div class="btn-row"><button class="btn" id="save-suppay">ثبت</button></div>
     `);
+    const methodEl = document.getElementById('f-method');
+    const checkFields = document.getElementById('check-fields');
+    methodEl.addEventListener('change', ()=>{
+      checkFields.style.display = methodEl.value==='check' ? '' : 'none';
+    });
     document.getElementById('save-suppay').addEventListener('click', async ()=>{
       const amount = numVal(document.getElementById('f-amount'));
       const date = document.getElementById('f-date').value || todayISO();
+      const method = methodEl.value;
+      const note = (document.getElementById('f-note').value||'').trim();
       if(amount<=0){ showToast('مبلغ رو وارد کن'); return; }
       s.payments = s.payments||[];
-      s.payments.push({date, amount});
+      if(method==='check'){
+        const dueDate = document.getElementById('f-due').value || date;
+        const checkNumber = (document.getElementById('f-check-num').value||'').trim();
+        const bank = (document.getElementById('f-bank').value||'').trim();
+        // amount در مانده لحاظ می‌شود؛ faceAmount مبلغ اسمی چک است (برای برگشتی)
+        s.payments.push({
+          id: uid(),
+          date,
+          amount,
+          faceAmount: amount,
+          method: 'check',
+          checkNumber,
+          bank,
+          issueDate: date,
+          dueDate,
+          status: 'pending',
+          note,
+        });
+      } else {
+        s.payments.push({id: uid(), date, amount, method: 'cash', note});
+      }
       await saveData(); openSupplierDetail(sid); render(); showToast('پرداخت ثبت شد');
     });
   });
+
+  // حذف پرداخت نقدی یا چک — با حذف، مبلغ از جمع پرداخت‌ها خارج و مانده اصلاح می‌شود
+  // توجه: pidx مربوط به آرایهٔ مرتب‌شدهٔ payments است؛ ایندکس واقعی با indexOf گرفته می‌شود
+  document.querySelectorAll('[data-sup-pay-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const pidx = parseInt(btn.dataset.supPayDel, 10);
+      const p = payments[pidx];
+      if(!p) return;
+      const realIdx = (s.payments||[]).indexOf(p);
+      if(realIdx<0) return;
+      const label = p.method==='check' ? ('چک'+(p.checkNumber?(' #'+p.checkNumber):'')) : 'پرداخت';
+      if(!confirm('«'+label+'» به مبلغ '+toman(p.method==='check'?(p.faceAmount||p.amount):p.amount)+' تومان حذف شود؟\nمانده حساب تامین‌کننده اصلاح می‌شود.')) return;
+      s.payments.splice(realIdx, 1);
+      await saveData(); openSupplierDetail(sid); render(); showToast('حذف شد');
+    });
+  });
+
+  // چرخش وضعیت چک: در جریان → پرداخت‌شده → برگشتی → در جریان
+  // برگشتی: amount=0 تا از مانده کم نشود؛ faceAmount حفظ می‌شود
+  document.querySelectorAll('[data-sup-check-status]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const pidx = parseInt(btn.dataset.supCheckStatus, 10);
+      const p = payments[pidx];
+      if(!p || p.method!=='check') return;
+      const order = ['pending','cleared','bounced'];
+      const cur = p.status||'pending';
+      const next = order[(order.indexOf(cur)+1) % order.length];
+      const face = typeof p.faceAmount==='number' ? p.faceAmount : p.amount;
+      p.faceAmount = face;
+      p.status = next;
+      p.amount = (next==='bounced') ? 0 : face;
+      await saveData(); openSupplierDetail(sid); render();
+      showToast(next==='cleared'?'چک پرداخت‌شده شد':(next==='bounced'?'چک برگشتی شد — از مانده حذف شد':'چک در جریان شد'));
+    });
+  });
+
+  document.querySelectorAll('[data-sup-check-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const pidx = parseInt(btn.dataset.supCheckEdit, 10);
+      const p = payments[pidx];
+      if(!p || p.method!=='check') return;
+      const face = typeof p.faceAmount==='number' ? p.faceAmount : p.amount;
+      openSheet(`
+        <h3>ویرایش چک پرداختی</h3>
+        <div class="field"><label>مبلغ (تومان)</label><input id="f-amount" type="text" inputmode="decimal" value="${face||''}"></div>
+        <div class="field"><label>تاریخ صدور</label><input id="f-date" type="date" value="${p.issueDate||p.date||todayISO()}"></div>
+        <div class="field"><label>تاریخ سررسید</label><input id="f-due" type="date" value="${p.dueDate||todayISO()}"></div>
+        <div class="field"><label>شماره چک</label><input id="f-check-num" value="${esc(p.checkNumber||'')}"></div>
+        <div class="field"><label>بانک</label><input id="f-bank" value="${esc(p.bank||'')}"></div>
+        <div class="field"><label>توضیح</label><input id="f-note" value="${esc(p.note||'')}"></div>
+        <div class="field">
+          <label>وضعیت</label>
+          <select id="f-status">
+            <option value="pending" ${(p.status||'pending')==='pending'?'selected':''}>در جریان</option>
+            <option value="cleared" ${p.status==='cleared'?'selected':''}>پرداخت‌شده</option>
+            <option value="bounced" ${p.status==='bounced'?'selected':''}>برگشتی</option>
+          </select>
+        </div>
+        <div class="btn-row"><button class="btn" id="save-sup-check-edit">ذخیره</button></div>
+      `);
+      document.getElementById('save-sup-check-edit').addEventListener('click', async ()=>{
+        const amount = numVal(document.getElementById('f-amount'));
+        if(amount<=0){ showToast('مبلغ رو وارد کن'); return; }
+        const status = document.getElementById('f-status').value || 'pending';
+        p.faceAmount = amount;
+        p.amount = (status==='bounced') ? 0 : amount;
+        p.status = status;
+        p.issueDate = document.getElementById('f-date').value || todayISO();
+        p.date = p.issueDate;
+        p.dueDate = document.getElementById('f-due').value || p.issueDate;
+        p.checkNumber = (document.getElementById('f-check-num').value||'').trim();
+        p.bank = (document.getElementById('f-bank').value||'').trim();
+        p.note = (document.getElementById('f-note').value||'').trim();
+        await saveData(); openSupplierDetail(sid); render(); showToast('چک ویرایش شد');
+      });
+    });
+  });
+
   document.getElementById('edit-supplier').addEventListener('click', ()=>{
     openSheet(`
       <h3>ویرایش تامین‌کننده</h3>
