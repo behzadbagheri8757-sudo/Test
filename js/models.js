@@ -9,8 +9,10 @@
    ======================================================================= */
 
 // Logo assets (external files — not inlined; load only when print/export needs them)
-const APP_LOGO_DATA_URI = './assets/logo-export.png';
-const EXPORT_LOGO_DATA_URI = './assets/logo-export.png';
+// NOTE: logo-export.png lives at the project root (next to index.html) — there is
+// no assets/ folder in this project. The path below matches the real file location.
+const APP_LOGO_DATA_URI = './logo-export.png';
+const EXPORT_LOGO_DATA_URI = './logo-export.png';
 
 const DB_NAME = 'baqeriDB';
 const DB_VERSION = 1;

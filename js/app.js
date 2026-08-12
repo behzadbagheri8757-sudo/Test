@@ -391,11 +391,11 @@ function resolvedAssetUrl(relPath){
   catch(e){ return relPath; }
 }
 function appLogoSrc(){
-  const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './assets/logo-export.png';
+  const p = (typeof APP_LOGO_DATA_URI !== 'undefined' && APP_LOGO_DATA_URI) ? APP_LOGO_DATA_URI : './logo-export.png';
   return resolvedAssetUrl(p);
 }
 function exportLogoSrc(){
-  const p = (typeof EXPORT_LOGO_DATA_URI !== 'undefined' && EXPORT_LOGO_DATA_URI) ? EXPORT_LOGO_DATA_URI : './assets/logo-export.png';
+  const p = (typeof EXPORT_LOGO_DATA_URI !== 'undefined' && EXPORT_LOGO_DATA_URI) ? EXPORT_LOGO_DATA_URI : './logo-export.png';
   return resolvedAssetUrl(p);
 }
 
@@ -507,7 +507,7 @@ async function printInvoice(invId){
   const failed = results.filter(r=>!r.ok);
   if(failed.length){
     console.warn('print logo load failed', failed);
-    if(typeof showToast==='function') showToast('لوگو بارگذاری نشد — مسیر assets را بررسی کنید');
+    if(typeof showToast==='function') showToast('لوگو بارگذاری نشد — مسیر logo-export.png را بررسی کنید');
   }
   // one extra frame after decode so layout/print engine sees the bitmap
   await new Promise(r=> requestAnimationFrame(()=> requestAnimationFrame(r)));
