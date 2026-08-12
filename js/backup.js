@@ -29,9 +29,107 @@ async function downloadFile(filename, blobParts, mime){
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
 
+/** کلید اسنپ‌شات Prospect قبل از Restore (داخل همان baqeriDB، جدا از CRM) */
+const PRERESTORE_PROSPECT_KEY = 'preRestoreProspect';
+
+/**
+ * دسترسی مستقیم به ProspectScoutDB (بدون وابستگی به لود بودن prospect-db.js)
+ * تا Backup از صفحه تنظیمات هم کار کند.
+ */
+function openProspectScoutDbForBackup(){
+  return new Promise((resolve, reject)=>{
+    try{
+      const req = indexedDB.open('ProspectScoutDB', 1);
+      req.onupgradeneeded = (e)=>{
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains('shops')) db.createObjectStore('shops',{keyPath:'id'});
+        if(!db.objectStoreNames.contains('routes')) db.createObjectStore('routes',{keyPath:'id'});
+        if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta',{keyPath:'key'});
+      };
+      req.onsuccess = (e)=> resolve(e.target.result);
+      req.onerror = (e)=> reject(e.target.error);
+    }catch(e){ reject(e); }
+  });
+}
+function prospectBackupGetAll(db, storeName){
+  return new Promise((resolve, reject)=>{
+    const r = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+    r.onsuccess = ()=> resolve(r.result||[]);
+    r.onerror = ()=> reject(r.error);
+  });
+}
+function prospectBackupGet(db, storeName, key){
+  return new Promise((resolve, reject)=>{
+    const r = db.transaction(storeName, 'readonly').objectStore(storeName).get(key);
+    r.onsuccess = ()=> resolve(r.result||null);
+    r.onerror = ()=> reject(r.error);
+  });
+}
+function prospectBackupPut(db, storeName, value){
+  return new Promise((resolve, reject)=>{
+    const r = db.transaction(storeName, 'readwrite').objectStore(storeName).put(value);
+    r.onsuccess = ()=> resolve(value);
+    r.onerror = ()=> reject(r.error);
+  });
+}
+function prospectBackupDelete(db, storeName, key){
+  return new Promise((resolve, reject)=>{
+    const r = db.transaction(storeName, 'readwrite').objectStore(storeName).delete(key);
+    r.onsuccess = ()=> resolve(true);
+    r.onerror = ()=> reject(r.error);
+  });
+}
+
+/** خواندن بسته‌ی Prospect برای Backup — در صورت نبود DB یا خطا null */
+async function exportProspectScoutBundle(){
+  try{
+    const db = await openProspectScoutDbForBackup();
+    const shops = await prospectBackupGetAll(db, 'shops');
+    const routes = await prospectBackupGetAll(db, 'routes');
+    const dtRec = await prospectBackupGet(db, 'meta', 'dailyTarget');
+    try{ db.close(); }catch(e){}
+    return {
+      version: 1,
+      shops: shops || [],
+      routes: routes || [],
+      dailyTarget: (dtRec && dtRec.value) ? dtRec.value : null,
+    };
+  }catch(e){
+    console.error('exportProspectScoutBundle failed', e);
+    return null;
+  }
+}
+
+/** جایگزینی کامل داده‌ی Prospect از bundle بکاپ — فقط وقتی bundle معتبر است */
+async function restoreProspectScoutBundle(bundle){
+  if(!bundle || typeof bundle !== 'object') return false;
+  if(!Array.isArray(bundle.shops) && !Array.isArray(bundle.routes) && bundle.dailyTarget == null) return false;
+  try{
+    const db = await openProspectScoutDbForBackup();
+    const oldShops = await prospectBackupGetAll(db, 'shops');
+    const oldRoutes = await prospectBackupGetAll(db, 'routes');
+    for(const s of (oldShops||[])) await prospectBackupDelete(db, 'shops', s.id);
+    for(const r of (oldRoutes||[])) await prospectBackupDelete(db, 'routes', r.id);
+    for(const s of (bundle.shops||[])) await prospectBackupPut(db, 'shops', s);
+    for(const r of (bundle.routes||[])) await prospectBackupPut(db, 'routes', r);
+    if(bundle.dailyTarget != null){
+      await prospectBackupPut(db, 'meta', {key:'dailyTarget', value: bundle.dailyTarget});
+    }
+    try{ db.close(); }catch(e){}
+    return true;
+  }catch(e){
+    console.error('restoreProspectScoutBundle failed', e);
+    return false;
+  }
+}
+
 async function exportBackupJSON(){
   const stamp = todayISO();
-  await downloadFile(`baqeri-backup-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json');
+  // سازگاری: همان فیلدهای data در ریشه؛ prospectScout اختیاری و اضافه
+  const payload = JSON.parse(JSON.stringify(data));
+  const prospect = await exportProspectScoutBundle();
+  if(prospect) payload.prospectScout = prospect;
+  await downloadFile(`baqeri-backup-${stamp}.json`, JSON.stringify(payload, null, 2), 'application/json');
   showToast('فایل بکاپ آماده شد');
 }
 
@@ -51,8 +149,18 @@ async function importBackupJSON(file){
     }
     // safety net: keep a snapshot of what's about to be overwritten
     await dbPut(PRERESTORE_KEY, JSON.stringify(data));
+    // اسنپ‌شات Prospect فعلی برای Undo (حتی اگر فایل بکاپ Prospect نداشته باشد)
+    try{
+      const pSnap = await exportProspectScoutBundle();
+      if(pSnap) await dbPut(PRERESTORE_PROSPECT_KEY, JSON.stringify(pSnap));
+    }catch(e){ console.error('prospect pre-restore snapshot failed', e); }
+
     data = normalizeData(parsed);
     await saveData();
+    // فقط اگر بکاپ جدید شامل prospectScout باشد جایگزین می‌شود؛ بکاپ قدیمی Prospect فعلی را دست نمی‌زند
+    if(parsed.prospectScout){
+      await restoreProspectScoutBundle(parsed.prospectScout);
+    }
     render();
     showToast('اطلاعات با موفقیت بازیابی شد');
   }catch(e){
@@ -67,6 +175,12 @@ async function undoLastRestore(){
     if(!snap || !snap.value){ showToast('نسخه‌ی قبل از بازیابی موجود نیست'); return; }
     data = normalizeData(JSON.parse(snap.value));
     await saveData();
+    try{
+      const pSnap = await dbGet(PRERESTORE_PROSPECT_KEY);
+      if(pSnap && pSnap.value){
+        await restoreProspectScoutBundle(JSON.parse(pSnap.value));
+      }
+    }catch(e){ console.error('prospect undo restore failed', e); }
     render();
     showToast('به حالت قبل از بازیابی برگشت');
   }catch(e){

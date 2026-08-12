@@ -42,6 +42,59 @@ function invoiceDiscountAmount(inv){
   return inv.discount||0;
 }
 
+/** مبلغ ثبت‌شده روی خود فاکتور (فیلدهای cash/card/transfer/check) — بدون تغییر منطق ذخیره */
+function invoiceOnRecordPaid(inv){
+  return (inv.cashPaid||0) + (inv.cardPaid||0) + (inv.transferPaid||0) + (inv.checkPaid||0);
+}
+
+/**
+ * پوشش نمایشی فاکتور: مبلغ روی فاکتور + تخصیص FIFO از دریافت‌های بدون invoiceId همان مشتری.
+ * فقط برای نمایش وضعیت/مانده فاکتور؛ customerTotals و ذخیره را تغییر نمی‌دهد.
+ * پرداخت‌های لینک‌شده به فاکتور (ساخته‌شده با pushInvoicePayments) در pool نیستند تا دوبار شمرده نشوند.
+ */
+function invoiceEffectivePaid(inv){
+  if(!inv) return 0;
+  const onRec = invoiceOnRecordPaid(inv);
+  const cid = inv.customerId;
+  if(!cid || typeof data === 'undefined' || !data) return onRec;
+
+  const invs = (data.invoices||[])
+    .filter(i => i.customerId === cid)
+    .slice()
+    .sort((a,b)=> (a.date||'').localeCompare(b.date||'')
+      || String(a.number||'').localeCompare(String(b.number||''))
+      || String(a.id||'').localeCompare(String(b.id||'')));
+
+  let pool = 0;
+  (data.payments||[]).forEach(p=>{
+    if(p.customerId !== cid) return;
+    if(p.invoiceId) return;
+    if(['cash','card','transfer','discount','return'].includes(p.method)) pool += (p.amount||0);
+  });
+  (data.checks||[]).forEach(c=>{
+    if(c.customerId !== cid) return;
+    if(c.invoiceId) return;
+    pool += (c.amount||0);
+  });
+
+  let covered = onRec;
+  for(const i of invs){
+    const base = invoiceOnRecordPaid(i);
+    const need = Math.max(0, (i.total||0) - base);
+    const fromPool = Math.min(need, pool);
+    pool -= fromPool;
+    if(i.id === inv.id){
+      covered = base + fromPool;
+      break;
+    }
+  }
+  return covered;
+}
+
+function invoiceEffectiveRemain(inv){
+  return Math.max(0, (inv.total||0) - invoiceEffectivePaid(inv));
+}
+
 function customerProfit(cid){
   // سود فاکتورها (با تخفیف ردیف و تخفیف کلی)
   let s = customerInvoices(cid).reduce((sum,inv)=>{
